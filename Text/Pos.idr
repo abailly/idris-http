@@ -12,10 +12,12 @@ record Pos source where
   posLine	: Int
   posCol	: Int
 
--- nextPos (Pos file line col) c =
--- 	if c == '\n' then Pos file (line + 1) 1
--- 	else if c == '\t' then Pos file line ((div (col + 8 - 1) 8) * 8 + 1)
--- 	else Pos file line (col + 1)
+export
+nextPos : Pos source -> Char -> Pos source
+nextPos (MkPos source line col) c =
+	if c == '\n' then MkPos source (line + 1) 1
+	else if c == '\t' then MkPos source line ((div (col + 8 - 1) 8) * 8 + 1)
+	else MkPos source line (col + 1)
 
 public export
 Eq (Pos String) where

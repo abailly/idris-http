@@ -31,9 +31,9 @@ interface Derivs d where
 nullError : Derivs d => d -> ParseError
 nullError dvs = MkParseError (dvPos dvs) []
 
--- Potentially join two sets of ParseErrors,
--- but only if the position didn't change from the first to the second.
--- If it did, just return the "new" (second) set of errors.
+||| Potentially join two sets of ParseErrors,
+||| but only if the position didn't change from the first to the second.
+||| If it did, just return the "new" (second) set of errors.
 joinErrors : ParseError -> ParseError -> ParseError
 joinErrors (MkParseError p m) (MkParseError p' m') =
   if p' > p || isNil  m
@@ -233,7 +233,8 @@ satisfy (MkParser p) test = MkParser parse
 
 -- -- msgError pos msg = ParseError pos [Message msg]
 
--- -- eofError dvs = msgError (dvPos dvs) "end of input"
+eofError : (Derivs d) => d -> ParseError
+eofError dvs = MkParseError (dvPos dvs) [ Msg "end of input" ]
 
 -- -- expected :: Derivs d => String -> Parser d v
 -- -- expected desc = Parser (\dvs -> NoParse (expError (dvPos dvs) desc))
@@ -323,8 +324,8 @@ string str = p (unpack str) -- <?> show str
 -- -- alphaNum :: Derivs d => Parser d Char
 -- -- alphaNum = satisfy anyChar isAlphaNum <?> "letter or digit"
 
--- -- digit :: Derivs d => Parser d Char
--- -- digit = satisfy anyChar isDigit <?> "digit"
+digit : Derivs d => Parser d Char
+digit = satisfy anyChar isDigit -- <?> "digit"
 
 -- hexDigit :: Derivs d => Parser d Char
 -- hexDigit = satisfy anyChar isHexDigit <?> "hexadecimal digit (0-9, a-f)"
@@ -367,3 +368,40 @@ string str = p (unpack str) -- <?> show str
 --   case dvChar d of
 --     NoParse err -> []
 --     Parsed c rem err -> (c : dvString rem)
+
+-- * Example
+
+record Arithmetics where
+  constructor MkArith
+  dvDecimal : Lazy (Result Int Arithmetics)
+  dvChar		: Lazy (Result Char Arithmetics)
+  dvPos		: Lazy (Pos String)
+
+Derivs Arithmetics where
+  dvChar d = dvChar d
+  dvPos d = dvPos d
+
+pDecimal : Parser Arithmetics Int
+pDecimal = do
+  c <- digit
+  pure (cast c - 32)
+
+parseAr : (Pos String) -> String -> Arithmetics
+parseAr pos s = d where
+  mutual
+    d : Arithmetics
+    d    = MkArith dec chr pos
+
+    dec : (Result Int Arithmetics)
+    dec  = let MkParser p = pDecimal
+           in p d
+
+    chr : (Result Char Arithmetics)
+    chr  = case unpack s of
+             (c :: s') => Parsed c (parseAr (nextPos pos c) $ pack s') (nullError d)
+             [] => NoParse (eofError d)
+
+eval : String -> Either String Int
+eval s = case dvDecimal (parseAr (MkPos "<input>" 1 1) s) of
+              Parsed v d' e' => Right v
+              _ => Left "Parse error"
