@@ -2,6 +2,8 @@
 -- within a text file or other text stream.
 module Text.Pos
 
+%access public export
+
 ||| A position in a specific character source
 ||| Packrat parsers work by memoizing results of parsing rules, pointing
 ||| at some position in the input stream.
@@ -21,13 +23,14 @@ nextPos (MkPos source line col) c =
 
 public export
 Eq (Pos String) where
-	MkPos f1 l1 c1 == MkPos f2 l2 c2 =
+	(MkPos f1 l1 c1) == (MkPos f2 l2 c2) =
 		f1 == f2 && l1 == l2 && c1 == c2
 
 public export
 Ord (Pos String) where
-	MkPos f1 l1 c1 <= MkPos f2 l2 c2 =
-		(l1 < l2) || (l1 == l2 && c1 <= c2)
+	compare (MkPos f1 l1 c1) (MkPos f2 l2 c2) = case (compare l1 l2) of
+                                                   EQ => compare c1 c2
+                                                   other => other
 
 public export
 Show (Pos String) where

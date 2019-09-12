@@ -1,0 +1,4 @@
+package idrishttp
+pkgs  = base
+modules = Text.ParseTest, Text.Parse, Text.Pos
+tests = Text.ParseTest.test

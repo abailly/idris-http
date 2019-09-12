@@ -5,6 +5,8 @@ module Text.Parse
 import Text.Pos
 import Data.List
 
+%access public export
+
 -- Data types
 
 data Message : Type where
@@ -28,8 +30,42 @@ interface Derivs d where
   dvPos  : d -> Pos String
   dvChar : d -> Result Char d
 
+
 nullError : Derivs d => d -> ParseError
 nullError dvs = MkParseError (dvPos dvs) []
+
+Show ParseError where
+  show (MkParseError pos []) =
+    show pos ++ ": unknown error"
+  show (MkParseError pos msgs) = expectmsg expects ++ messages msgs
+     where
+       mutual
+         expects : List String
+         expects = getExpects msgs
+
+         getExpects : List Message -> List String
+         getExpects [] = []
+         getExpects (Expected exp :: rest) = exp :: getExpects rest
+         getExpects (Msg msg :: rest) = getExpects rest
+
+         expectmsg : List String -> String
+         expectmsg [] = ""
+         expectmsg [exp] = show pos ++ ": expecting " ++ exp ++ "\n"
+         expectmsg [e1, e2] = show pos ++ ": expecting either "
+               ++ e1 ++ " or " ++ e2 ++ "\n"
+         expectmsg (first :: rest) = show pos ++ ": expecting one of: "
+                 ++ first ++ expectlist rest
+                 ++ "\n"
+
+         expectlist : List String -> String
+         expectlist [last] = ", or " ++ last
+         expectlist (mid :: rest) = ", " ++ mid ++ expectlist rest
+
+         messages : List Message -> String
+         messages [] = ""
+         messages (Expected exp :: rest) = messages rest
+         messages (Msg msg :: rest) =
+           show pos ++ ": " ++ msg ++ "\n" ++ messages rest
 
 ||| Potentially join two sets of ParseErrors,
 ||| but only if the position didn't change from the first to the second.
@@ -42,36 +78,34 @@ joinErrors (MkParseError p m) (MkParseError p' m') =
          then MkParseError p m
          else MkParseError p (m ++ m')
 
+msgError : Pos String -> String -> ParseError
+msgError pos msg = MkParseError pos [Msg msg]
+
 -- -- Basic Combinators
 
-infixl 2 <|>
-infixl 1 <?>
-infixl 1 <?!>
+--infixl 2 <|>
+--infixl 1 <?>
+--infixl 1 <?!>
 
-public export
-Derivs d => Functor (Parser d) where
-  map f (MkParser p) =
-    MkParser $
-     \ v => case p v of
-                 Parsed v d err => Parsed (f v) d err
-                 NoParse err => NoParse err
+implementation (Derivs d) => Functor (Parser d) where
+  map f (MkParser p) = MkParser $ \ v => case p v of
+                                           Parsed v d err => Parsed (f v) d err
+                                           NoParse err => NoParse err
 
-public export
-Derivs d => Applicative (Parser d) where
-  pure x = MkParser $ \dvs => Parsed x dvs (nullError dvs)
-  MkParser pf <*> MkParser pa =
-    MkParser $
-    \ dvs =>
-      case pf dvs of
-        Parsed f rem err  =>
-          case pa rem of
-            Parsed x rem' err' => Parsed (f x) rem' (joinErrors err err')
-            NoParse errs => NoParse errs
-        NoParse errs => NoParse errs
+implementation Derivs d => Applicative (Parser d) where
+  pure x = MkParser (\dvs => Parsed x dvs (nullError dvs))
 
-public export
-Derivs d => Monad (Parser d) where
-  MkParser p1 >>= f = MkParser ?parse
+  (MkParser pf) <*> (MkParser pa) =
+    MkParser (\ dvs =>
+               case pf dvs of
+                 Parsed f rem err  =>
+                   case pa rem of
+                     Parsed x rem' err' => Parsed (f x) rem' (joinErrors err err')
+                     NoParse errs => NoParse errs
+                 NoParse errs => NoParse errs)
+
+implementation Derivs d => Monad (Parser d) where
+  (MkParser p1) >>= f = MkParser parse
     where
       second : ParseError -> Result b d -> Result b d
       second err1 (Parsed val rem err) =
@@ -82,28 +116,37 @@ Derivs d => Monad (Parser d) where
       first : Result a d -> Result b d
       first (Parsed val rem err) =
         let MkParser p2 = f val
-        in ?second err (p2 rem)
+        in second err (p2 rem)
       first (NoParse err) = NoParse err
 
       parse : d -> Result b d
-      parse dvs = ?first (p1 dvs)
+      parse dvs = first (p1 dvs)
 
 
--- --   return x = Parser (\dvs -> Parsed x dvs (nullError dvs))
+fail : Derivs d => String -> Parser d v
+fail msg = MkParser (\dvs => NoParse (msgError (dvPos dvs) msg))
 
--- --   fail msg = Parser (\dvs -> NoParse (msgError (dvPos dvs) msg))
+implementation Derivs d => Alternative (Parser d) where
+  empty = MkParser $ \ dv => NoParse (MkParseError (dvPos dv) [ Msg "Nothing to parse" ])
 
--- -- (<|>) :: Derivs d => Parser d v -> Parser d v -> Parser d v
--- -- (Parser p1) <|> (Parser p2) = Parser parse
--- --     where parse dvs = first dvs (p1 dvs)
+  (MkParser p1) <|> (MkParser p2) = MkParser parse
+      where second : ParseError -> Result a d -> Result a d
+            second err1 (Parsed val rem err) =
+                   Parsed val rem (joinErrors err1 err)
+            second err1 (NoParse err) =
+                   NoParse (joinErrors err1 err)
 
--- --           first dvs (result @ (Parsed val rem err)) = result
--- --           first dvs (NoParse err) = second err (p2 dvs)
+            -- first : Result a d -> Result b d
+            -- first dvs (result @ (Parsed val rem err)) = result
+            -- first dvs (NoParse err) = second err (p2 dvs)
 
--- --           second err1 (Parsed val rem err) =
--- --       Parsed val rem (joinErrors err1 err)
--- --           second err1 (NoParse err) =
--- --       NoParse (joinErrors err1 err)
+            first : d -> Result a d -> Result a d
+            first dvs result@(Parsed x y z) = result
+            first dvs (NoParse err) = second err (p2 dvs)
+
+            parse : d -> Result a d
+            parse dvs = first dvs (p1 dvs)
+
 
 satisfy : Derivs d => Parser d v -> (v -> Bool) -> Parser d v
 satisfy (MkParser p) test = MkParser parse
@@ -231,7 +274,6 @@ satisfy (MkParser p) test = MkParser parse
 
 -- -- expError pos desc = ParseError pos [Expected desc]
 
--- -- msgError pos msg = ParseError pos [Message msg]
 
 eofError : (Derivs d) => d -> ParseError
 eofError dvs = MkParseError (dvPos dvs) [ Msg "end of input" ]
@@ -258,30 +300,6 @@ eofError dvs = MkParseError (dvPos dvs) [ Msg "end of input" ]
 -- --   max p1 p2 = joinErrors p1 p2
 -- --   min p1 p2 = undefined
 
--- -- instance Show ParseError where
--- --   show (ParseError pos []) =
--- --     show pos ++ ": unknown error"
--- --   show (ParseError pos msgs) = expectmsg expects ++ messages msgs
--- --      where
--- --     expects = getExpects msgs
--- --     getExpects [] = []
--- --     getExpects (Expected exp : rest) = exp : getExpects rest
--- --     getExpects (Message msg : rest) = getExpects rest
-
--- --     expectmsg [] = ""
--- --     expectmsg [exp] = show pos ++ ": expecting " ++ exp ++ "\n"
--- --     expectmsg [e1, e2] = show pos ++ ": expecting either "
--- --           ++ e1 ++ " or " ++ e2 ++ "\n"
--- --     expectmsg (first : rest) = show pos ++ ": expecting one of: "
--- --             ++ first ++ expectlist rest
--- --             ++ "\n"
--- --     expectlist [last] = ", or " ++ last
--- --     expectlist (mid : rest) = ", " ++ mid ++ expectlist rest
-
--- --     messages [] = []
--- --     messages (Expected exp : rest) = messages rest
--- --     messages (Message msg : rest) =
--- --       show pos ++ ": " ++ msg ++ "\n" ++ messages rest
 
 
 -- Character-oriented parsers
@@ -368,40 +386,3 @@ digit = satisfy anyChar isDigit -- <?> "digit"
 --   case dvChar d of
 --     NoParse err -> []
 --     Parsed c rem err -> (c : dvString rem)
-
--- * Example
-
-record Arithmetics where
-  constructor MkArith
-  dvDecimal : Lazy (Result Int Arithmetics)
-  dvChar		: Lazy (Result Char Arithmetics)
-  dvPos		: Lazy (Pos String)
-
-Derivs Arithmetics where
-  dvChar d = dvChar d
-  dvPos d = dvPos d
-
-pDecimal : Parser Arithmetics Int
-pDecimal = do
-  c <- digit
-  pure (cast c - 32)
-
-parseAr : (Pos String) -> String -> Arithmetics
-parseAr pos s = d where
-  mutual
-    d : Arithmetics
-    d    = MkArith dec chr pos
-
-    dec : (Result Int Arithmetics)
-    dec  = let MkParser p = pDecimal
-           in p d
-
-    chr : (Result Char Arithmetics)
-    chr  = case unpack s of
-             (c :: s') => Parsed c (parseAr (nextPos pos c) $ pack s') (nullError d)
-             [] => NoParse (eofError d)
-
-eval : String -> Either String Int
-eval s = case dvDecimal (parseAr (MkPos "<input>" 1 1) s) of
-              Parsed v d' e' => Right v
-              _ => Left "Parse error"
