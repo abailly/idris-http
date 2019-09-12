@@ -9,37 +9,37 @@ import System
 
 record Arithmetics where
   constructor MkArith
-  dvDecimal : Lazy (Result Int Arithmetics)
-  dvChar		: Lazy (Result Char Arithmetics)
-  dvPos		: Lazy (Pos String)
+  arDecimal : Lazy (Result Int Arithmetics)
+  arChar : Lazy (Result Char Arithmetics)
+  arPos : Pos String
 
 Derivs Arithmetics where
-  dvChar d = dvChar d
-  dvPos d = dvPos d
+  dvChar d = arChar d
+  dvPos d = arPos d
 
 pDecimal : Parser Arithmetics Int
 pDecimal = do
   c <- digit
-  pure (cast c - 32)
+  pure (cast c - 48)
 
-parseAr : (Pos String) -> String -> Arithmetics
+parseAr : Pos String -> String -> Arithmetics
 parseAr pos s = d
   where
     mutual
       d : Arithmetics
       d    = MkArith dec chr pos
 
-      dec : (Result Int Arithmetics)
+      dec : Result Int Arithmetics
       dec  = let MkParser p = pDecimal
              in p d
 
-      chr : (Result Char Arithmetics)
+      chr : Result Char Arithmetics
       chr  = case unpack s of
                (c :: s') => Parsed c (parseAr (nextPos pos c) $ pack s') (nullError d)
                [] => NoParse (eofError d)
 
 eval : String -> Either String Int
-eval s = case Force (dvDecimal (parseAr (MkPos "<input>" 1 1) s)) of
+eval s = case arDecimal (parseAr (MkPos "<input>" 1 1) s) of
               Parsed v d' e' => Right v
               NoParse err => Left $ show err
 
@@ -60,4 +60,6 @@ export
 test : IO ()
 test = do
   Right () <- test_canParseASingleDigitString
-    | Left err => putStrLn err ; exit 1
+    | Left err => do putStrLn err
+                     exit 1
+  pure ()
