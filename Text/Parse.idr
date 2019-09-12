@@ -224,13 +224,13 @@ anyChar = MkParser dvChar
 char : Derivs d => Char -> Parser d Char
 char ch = satisfy anyChar (\c => c == ch) <?> show ch
 
--- -- oneOf :: Derivs d => [Char] -> Parser d Char
--- -- oneOf chs = satisfy anyChar (\c -> c `elem` chs)
--- --       <?> ("one of the characters " ++ show chs)
+oneOf : Derivs d => List Char -> Parser d Char
+oneOf chs = satisfy anyChar (\c => c `elem` chs)
+      <?> ("one of the characters " ++ pack chs)
 
--- -- noneOf :: Derivs d => [Char] -> Parser d Char
--- -- noneOf chs = satisfy anyChar (\c -> not (c `elem` chs))
--- --        <?> ("any character not in " ++ show chs)
+noneOf : Derivs d => List Char -> Parser d Char
+noneOf chs = satisfy anyChar (\c => not (c `elem` chs))
+       <?> ("any character not in " ++ pack chs)
 
 string : Derivs d => String -> Parser d String
 string str = p (unpack str) <?> show str
@@ -240,15 +240,15 @@ string str = p (unpack str) <?> show str
           char ch
           p chs
 
--- -- stringFrom :: Derivs d => [String] -> Parser d String
--- -- stringFrom [str] = string str
--- -- stringFrom (str : strs) = string str <|> stringFrom strs
+stringFrom : Derivs d => List String -> Parser d String
+stringFrom [str] = string str
+stringFrom (str :: strs) = string str <|> stringFrom strs
 
--- -- upper :: Derivs d => Parser d Char
--- -- upper = satisfy anyChar isUpper <?> "uppercase letter"
+upper : Derivs d => Parser d Char
+upper = satisfy anyChar isUpper <?> "uppercase letter"
 
--- -- lower :: Derivs d => Parser d Char
--- -- lower = satisfy anyChar isLower <?> "lowercase letter"
+lower : Derivs d => Parser d Char
+lower = satisfy anyChar isLower <?> "lowercase letter"
 
 letter : Derivs d => Parser d Char
 letter = satisfy anyChar isAlpha <?> "letter"
@@ -259,17 +259,17 @@ alphaNum = satisfy anyChar isAlphaNum <?> "letter or digit"
 digit : Derivs d => Parser d Char
 digit = satisfy anyChar isDigit -- <?> "digit"
 
--- hexDigit :: Derivs d => Parser d Char
--- hexDigit = satisfy anyChar isHexDigit <?> "hexadecimal digit (0-9, a-f)"
+hexDigit : Derivs d => Parser d Char
+hexDigit = satisfy anyChar isHexDigit <?> "hexadecimal digit (0-9, a-f)"
 
--- octDigit :: Derivs d => Parser d Char
--- octDigit = satisfy anyChar isOctDigit <?> "octal digit (0-7)"
+octDigit :  Derivs d => Parser d Char
+octDigit = satisfy anyChar isOctDigit <?> "octal digit (0-7)"
 
--- newline :: Derivs d => Parser d Char
--- newline = char '\n'
+newline :  Derivs d => Parser d Char
+newline = char '\n'
 
--- tab :: Derivs d => Parser d Char
--- tab = char '\t'
+tab : Derivs d => Parser d Char
+tab = char '\t'
 
 space : Derivs d => Parser d Char
 space = satisfy anyChar isSpace <?> "whitespace character"
