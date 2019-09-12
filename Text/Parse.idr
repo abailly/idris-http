@@ -160,16 +160,19 @@ satisfy (MkParser p) test = MkParser parse
       parse : d -> Result v d
       parse dvs = check dvs (p dvs)
 
--- -- notFollowedBy :: (Derivs d, Show v) => Parser d v -> Parser d ()
--- -- notFollowedBy (Parser p) = Parser parse
--- --   where parse dvs = case (p dvs) of
--- --     Parsed val rem err ->
--- --       NoParse (msgError (dvPos dvs)
--- --             ("unexpected " ++ show val))
--- --     NoParse err -> Parsed () dvs (nullError dvs)
+-- notFollowedBy :: (Derivs d, Show v) => Parser d v -> Parser d ()
+-- notFollowedBy (Parser p) = Parser parse
+--   where parse dvs = case (p dvs) of
+--     Parsed val rem err ->
+--       NoParse (msgError (dvPos dvs)
+--             ("unexpected " ++ show val))
+--     NoParse err -> Parsed () dvs (nullError dvs)
 
--- -- optional :: Derivs d => Parser d v -> Parser d (Maybe v)
--- -- optional p = (do v <- p; return (Just v)) <|> return Nothing
+between : Derivs d => Parser d a -> Parser d b -> Parser d v -> Parser d v
+between start end content = start *> content <* end
+
+optional : Derivs d => Parser d v -> Parser d (Maybe v)
+optional p = (do v <- p; pure (Just v)) <|> pure Nothing
 
 many : Derivs d => Parser d v -> Parser d (List v)
 many p = (do { v <- p; vs <- many p; pure (v :: vs) } )
@@ -178,13 +181,13 @@ many p = (do { v <- p; vs <- many p; pure (v :: vs) } )
 many1 : Derivs d => Parser d v -> Parser d (List v)
 many1 p = do { v <- p; vs <- many p; pure (v :: vs) }
 
--- -- sepBy1 :: Derivs d => Parser d v -> Parser d vsep -> Parser d [v]
--- -- sepBy1 p psep = do v <- p
--- --        vs <- many (do { psep; p })
--- --        return (v : vs)
+sepBy1 : Derivs d => Parser d v -> Parser d vsep -> Parser d (List v)
+sepBy1 p psep = do v <- p
+                   vs <- many (do { psep; p })
+                   pure (v :: vs)
 
--- -- sepBy :: Derivs d => Parser d v -> Parser d vsep -> Parser d [v]
--- -- sepBy p psep = sepBy1 p psep <|> return []
+sepBy : Derivs d => Parser d v -> Parser d vsep -> Parser d (List v)
+sepBy p psep = sepBy1 p psep <|> pure []
 
 -- -- endBy :: Derivs d => Parser d v -> Parser d vend -> Parser d [v]
 -- -- endBy p pend = many (do { v <- p; pend; return v })
@@ -325,11 +328,11 @@ string str = p (unpack str) -- <?> show str
 -- -- lower :: Derivs d => Parser d Char
 -- -- lower = satisfy anyChar isLower <?> "lowercase letter"
 
--- -- letter :: Derivs d => Parser d Char
--- -- letter = satisfy anyChar isAlpha <?> "letter"
+letter : Derivs d => Parser d Char
+letter = satisfy anyChar isAlpha <?> "letter"
 
--- -- alphaNum :: Derivs d => Parser d Char
--- -- alphaNum = satisfy anyChar isAlphaNum <?> "letter or digit"
+alphaNum : Derivs d => Parser d Char
+alphaNum = satisfy anyChar isAlphaNum <?> "letter or digit"
 
 digit : Derivs d => Parser d Char
 digit = satisfy anyChar isDigit -- <?> "digit"
@@ -346,11 +349,12 @@ digit = satisfy anyChar isDigit -- <?> "digit"
 -- tab :: Derivs d => Parser d Char
 -- tab = char '\t'
 
--- space :: Derivs d => Parser d Char
--- space = satisfy anyChar isSpace <?> "whitespace character"
+space : Derivs d => Parser d Char
+space = satisfy anyChar isSpace <?> "whitespace character"
 
--- spaces :: Derivs d => Parser d [Char]
--- spaces = many space
+
+spaces : Derivs d => Parser d (List Char)
+spaces = many space
 
 -- eof :: Derivs d => Parser d ()
 -- eof = notFollowedBy anyChar <?> "end of input"
