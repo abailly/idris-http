@@ -1,6 +1,7 @@
 module Text.ParseTest
 
 import Text.Parse
+import Text.ParseError
 import Text.Pos
 import System
 
@@ -103,6 +104,7 @@ Eq SExp where
 
 record SExpParse where
   constructor MkSExpParse
+  sProg : Lazy (Result (List SExp) SExpParse)
   sList : Lazy (Result SExp SExpParse)
   sSym : Lazy (Result SExp SExpParse)
   sInt : Lazy (Result SExp SExpParse)
@@ -124,7 +126,10 @@ pSSym = do
 
 pSExpList : Parser SExpParse SExp
 pSExpList =
-  SList <$> between (char '(' <* spaces) (char ')' <* spaces) (sepBy (pSExpList <|> pSSym <|> pSInt) spaces)
+  SList <$> between (char '(' <* spaces) (char ')') (sepBy (pSExpList <|> pSSym <|> pSInt) spaces)
+
+pProg : Parser SExpParse (List SExp)
+pProg = many pSExpList <* eof
 
 parseSExp : Pos String -> List Char -> SExpParse
 parseSExp pos s = d
@@ -132,6 +137,7 @@ parseSExp pos s = d
     mutual
       d : SExpParse
       d = MkSExpParse
+          (runP d pProg)
           (runP d pSExpList)
           (runP d pSSym)
           (runP d pSInt)
@@ -143,8 +149,8 @@ parseSExp pos s = d
                (c :: s') => Parsed c (parseSExp (nextPos pos c) s') (nullError d)
                [] => NoParse (eofError d)
 
-evalSExp : String -> Either String SExp
-evalSExp s = case sList (parseSExp (MkPos "<input>" 1 1) $ unpack s) of
+evalSExp : String -> Either String (List SExp)
+evalSExp s = case sProg (parseSExp (MkPos "<input>" 1 1) $ unpack s) of
                   Parsed v d' e' => Right v
                   NoParse err => Left $ show err
 
@@ -152,14 +158,18 @@ evalSExp s = case sList (parseSExp (MkPos "<input>" 1 1) $ unpack s) of
 test_canParseTokensInaSexp : IO (Either String ())
 test_canParseTokensInaSexp = do
   let res = evalSExp "(foo bar 12)"
-  res `shouldBe` Right (SList [ SSym "foo", SSym "bar", SInt 12 ])
+  res `shouldBe` Right [(SList [ SSym "foo", SSym "bar", SInt 12 ])]
 
   let res1 = evalSExp "(foo bar \n (quux) \n\n12)"
-  res1 `shouldBe` Right (SList [ SSym "foo", SSym "bar", SList [ SSym "quux"], SInt 12 ])
+  res1 `shouldBe` Right [(SList [ SSym "foo", SSym "bar", SList [ SSym "quux"], SInt 12 ])]
 
 test_returnsAnError : IO (Either String ())
 test_returnsAnError = do
   eval "z" `shouldBe` Left "<input>:1:1: expecting decimal integer\n"
+
+test_parseNotFollowedBy : IO (Either String ())
+test_parseNotFollowedBy = do
+  evalSExp "(foo)  " `shouldBe` Left "<input>:1:6: expecting end of input\n"
 
 export
 test : IO ()
@@ -168,6 +178,7 @@ test = do
                                               , test_canParseAMultipleDigitString
                                               , test_canParseAmultiplicationOperation
                                               , test_canParseTokensInaSexp
+                                              , test_parseNotFollowedBy
                                               , test_returnsAnError
                                               ]
   when (lefts /= []) $ do

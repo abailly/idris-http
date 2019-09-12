@@ -3,20 +3,12 @@
 module Text.Parse
 
 import Text.Pos
+import Text.ParseError
 import Data.List
 
 %access public export
 
 -- Data types
-
-data Message : Type where
-  Expected : String -> Message
-  Msg : String -> Message
-
-record ParseError  where
-  constructor MkParseError
-  errorPos : Pos String -- TODO generalise source
-  errorMessages  : List Message
 
 data Result : (v : Type) -> (d : Type) -> Type where
      Parsed : v -> d -> ParseError -> Result v d
@@ -37,58 +29,19 @@ nullError dvs = MkParseError (dvPos dvs) []
 expError : Derivs d => d  -> String -> ParseError
 expError dvs desc = MkParseError (dvPos dvs) [Expected desc]
 
-Show ParseError where
-  show (MkParseError pos []) =
-    show pos ++ ": unknown error"
-  show (MkParseError pos msgs) = expectmsg expects ++ messages msgs
-     where
-       mutual
-         expects : List String
-         expects = getExpects msgs
+eofError : (Derivs d) => d -> ParseError
+eofError dvs = MkParseError (dvPos dvs) [ Msg "end of input" ]
 
-         getExpects : List Message -> List String
-         getExpects [] = []
-         getExpects (Expected exp :: rest) = exp :: getExpects rest
-         getExpects (Msg msg :: rest) = getExpects rest
+expected : Derivs d => String -> Parser d v
+expected desc = MkParser (\dvs => NoParse (expError dvs desc))
 
-         expectmsg : List String -> String
-         expectmsg [] = ""
-         expectmsg [exp] = show pos ++ ": expecting " ++ exp ++ "\n"
-         expectmsg [e1, e2] = show pos ++ ": expecting either "
-               ++ e1 ++ " or " ++ e2 ++ "\n"
-         expectmsg (first :: rest) = show pos ++ ": expecting one of: "
-                 ++ first ++ expectlist rest
-                 ++ "\n"
-
-         expectlist : List String -> String
-         expectlist [last] = ", or " ++ last
-         expectlist (mid :: rest) = ", " ++ mid ++ expectlist rest
-
-         messages : List Message -> String
-         messages [] = ""
-         messages (Expected exp :: rest) = messages rest
-         messages (Msg msg :: rest) =
-           show pos ++ ": " ++ msg ++ "\n" ++ messages rest
-
-||| Potentially join two sets of ParseErrors,
-||| but only if the position didn't change from the first to the second.
-||| If it did, just return the "new" (second) set of errors.
-joinErrors : ParseError -> ParseError -> ParseError
-joinErrors (MkParseError p m) (MkParseError p' m') =
-  if p' > p || isNil  m
-  then MkParseError p' m'
-    else if p > p' || isNil  m'
-         then MkParseError p m
-         else MkParseError p (m ++ m')
-
-msgError : Pos String -> String -> ParseError
-msgError pos msg = MkParseError pos [Msg msg]
+failAt : Derivs d => Pos String -> String -> Parser d v
+failAt pos msg = MkParser (\dvs => NoParse (msgError pos msg))
 
 -- -- Basic Combinators
 
---infixl 2 <|>
 infixl 1 <?>
---infixl 1 <?!>
+infixl 1 <?!>
 
 implementation (Derivs d) => Functor (Parser d) where
   map f (MkParser p) = MkParser $ \ v => case p v of
@@ -129,6 +82,9 @@ implementation Derivs d => Monad (Parser d) where
 fail : Derivs d => String -> Parser d v
 fail msg = MkParser (\dvs => NoParse (msgError (dvPos dvs) msg))
 
+unexpected : Derivs d => String -> Parser d v
+unexpected str = fail ("unexpected " ++ str)
+
 implementation Derivs d => Alternative (Parser d) where
   empty = MkParser $ \ dv => NoParse (MkParseError (dvPos dv) [ Msg "Nothing to parse" ])
 
@@ -160,23 +116,23 @@ satisfy (MkParser p) test = MkParser parse
       parse : d -> Result v d
       parse dvs = check dvs (p dvs)
 
--- notFollowedBy :: (Derivs d, Show v) => Parser d v -> Parser d ()
--- notFollowedBy (Parser p) = Parser parse
---   where parse dvs = case (p dvs) of
---     Parsed val rem err ->
---       NoParse (msgError (dvPos dvs)
---             ("unexpected " ++ show val))
---     NoParse err -> Parsed () dvs (nullError dvs)
+notFollowedBy : (Derivs d, Show v) => Parser d v -> Parser d ()
+notFollowedBy (MkParser p) = MkParser parse
+  where
+    parse dvs = case (p dvs) of
+      Parsed val rem err => NoParse (expError dvs $ "unexpected " ++ show val)
+      NoParse err => Parsed () dvs (nullError dvs)
 
 between : Derivs d => Parser d a -> Parser d b -> Parser d v -> Parser d v
 between start end content = start *> content <* end
 
 optional : Derivs d => Parser d v -> Parser d (Maybe v)
-optional p = (do v <- p; pure (Just v)) <|> pure Nothing
+optional p =
+  (do v <- p; pure (Just v)) <|> pure Nothing
 
 many : Derivs d => Parser d v -> Parser d (List v)
-many p = (do { v <- p; vs <- many p; pure (v :: vs) } )
-   <|> pure []
+many p =
+  (do { v <- p; vs <- many p; pure (v :: vs) } ) <|> pure []
 
 many1 : Derivs d => Parser d v -> Parser d (List v)
 many1 p = do { v <- p; vs <- many p; pure (v :: vs) }
@@ -189,19 +145,19 @@ sepBy1 p psep = do v <- p
 sepBy : Derivs d => Parser d v -> Parser d vsep -> Parser d (List v)
 sepBy p psep = sepBy1 p psep <|> pure []
 
--- -- endBy :: Derivs d => Parser d v -> Parser d vend -> Parser d [v]
--- -- endBy p pend = many (do { v <- p; pend; return v })
+endBy : Derivs d => Parser d v -> Parser d vend -> Parser d (List v)
+endBy p pend = many (do { v <- p; pend; pure v })
 
--- -- endBy1 :: Derivs d => Parser d v -> Parser d vend -> Parser d [v]
--- -- endBy1 p pend = many1 (do { v <- p; pend; return v })
+endBy1 : Derivs d => Parser d v -> Parser d vend -> Parser d (List v)
+endBy1 p pend = many1 (do { v <- p; pend; pure v })
 
--- -- sepEndBy1 :: Derivs d => Parser d v -> Parser d vsep -> Parser d [v]
--- -- sepEndBy1 p psep = do v <- sepBy1 p psep; optional psep; return v
+sepEndBy1 : Derivs d => Parser d v -> Parser d vsep -> Parser d (List v)
+sepEndBy1 p psep = do v <- sepBy1 p psep; optional psep; pure v
 
--- -- sepEndBy :: Derivs d => Parser d v -> Parser d vsep -> Parser d [v]
--- -- sepEndBy p psep = do v <- sepBy p psep; optional psep; return v
+sepEndBy : Derivs d => Parser d v -> Parser d vsep -> Parser d (List v)
+sepEndBy p psep = do v <- sepBy p psep; optional psep; pure v
 
--- -- chainl1 :: Derivs d => Parser d v -> Parser d (v->v->v) -> Parser d v
+-- -- chainl1 :: Derivs d => Parser d v -> Parser d (v -> v -> v) -> Parser d v
 -- -- chainl1 p psep =
 -- --   let psuffix z = (do f <- psep
 -- --           v <- p
@@ -210,17 +166,17 @@ sepBy p psep = sepBy1 p psep <|> pure []
 -- --   in do v <- p
 -- --         psuffix v
 
--- -- chainl :: Derivs d => Parser d v -> Parser d (v->v->v) -> v -> Parser d v
+-- -- chainl :: Derivs d => Parser d v -> Parser d (v -> v -> v) -> v -> Parser d v
 -- -- chainl p psep z = chainl1 p psep <|> return z
 
--- -- chainr1 :: Derivs d => Parser d v -> Parser d (v->v->v) -> Parser d v
+-- -- chainr1 :: Derivs d => Parser d v -> Parser d (v -> v -> v) -> Parser d v
 -- -- chainr1 p psep = (do v <- p
 -- --          f <- psep
 -- --          w <- chainr1 p psep
 -- --          return (f v w))
 -- --      <|> p
 
--- -- chainr :: Derivs d => Parser d v -> Parser d (v->v->v) -> v -> Parser d v
+-- -- chainr :: Derivs d => Parser d v -> Parser d (v -> v -> v) -> v -> Parser d v
 -- -- chainr p psep z = chainr1 p psep <|> return z
 
 -- -- choice :: Derivs d => [Parser d v] -> Parser d v
@@ -229,13 +185,6 @@ sepBy p psep = sepBy1 p psep <|> pure []
 
 
 -- -- -- Error handling
--- -- instance Eq Message where
--- --   Expected e1 == Expected e2  = e1 == e2
--- --   Message m1 == Message m2  = m1 == m2
--- --   _ == _        = False
-
--- -- failAt :: Derivs d => Pos -> String -> Parser d v
--- -- failAt pos msg = Parser (\dvs -> NoParse (msgError pos msg))
 
 ||| Annotate a parser with a description of the construct to be parsed.
 ||| The resulting parser yields an "expected" error message
@@ -255,43 +204,16 @@ sepBy p psep = sepBy1 p psep <|> pure []
     munge dvs (Parsed v rem err) = Parsed v rem (fix dvs err)
     munge dvs (NoParse err) =  NoParse (fix dvs err)
 
--- -- -- Stronger version of the <?> error annotation operator above,
--- -- -- which unconditionally overrides any existing error information.
--- -- (<?!>) :: Derivs d => Parser d v -> String -> Parser d v
--- -- (Parser p) <?!> desc = Parser (\dvs -> munge dvs (p dvs))
--- --       where munge dvs (Parsed v rem err) =
--- --         Parsed v rem (fix dvs err)
--- --             munge dvs (NoParse err) =
--- --         NoParse (fix dvs err)
--- --             fix dvs (err @ (ParseError p ms)) =
--- --         expError (dvPos dvs) desc
+||| Stronger version of the <?> error annotation operator.
+||| which unconditionally overrides any existing error information.
+(<?!>) : Derivs d => Parser d v -> String -> Parser d v
+(MkParser p) <?!> desc = MkParser (\dvs => munge dvs (p dvs))
+  where
+    fix : d -> ParseError -> ParseError
+    fix dvs (err @ (MkParseError p ms)) = expError dvs desc
 
-
-eofError : (Derivs d) => d -> ParseError
-eofError dvs = MkParseError (dvPos dvs) [ Msg "end of input" ]
-
-expected : Derivs d => String -> Parser d v
-expected desc = MkParser (\dvs => NoParse (expError dvs desc))
-
-unexpected : Derivs d => String -> Parser d v
-unexpected str = fail ("unexpected " ++ str)
-
-
--- -- -- Comparison operators for ParseError just compare relative positions.
--- -- instance Eq ParseError where
--- --   ParseError p1 m1 == ParseError p2 m2  = p1 == p2
--- --   ParseError p1 m1 /= ParseError p2 m2  = p1 /= p2
-
--- -- instance Ord ParseError where
--- --   ParseError p1 m1 < ParseError p2 m2  = p1 < p2
--- --   ParseError p1 m1 > ParseError p2 m2  = p1 > p2
--- --   ParseError p1 m1 <= ParseError p2 m2  = p1 <= p2
--- --   ParseError p1 m1 >= ParseError p2 m2  = p1 >= p2
-
--- --   -- Special behavior: "max" joins two errors
--- --   max p1 p2 = joinErrors p1 p2
--- --   min p1 p2 = undefined
-
+    munge dvs (Parsed v rem err) = Parsed v rem (fix dvs err)
+    munge dvs (NoParse err) = NoParse (fix dvs err)
 
 
 -- Character-oriented parsers
@@ -300,7 +222,7 @@ anyChar : Derivs d => Parser d Char
 anyChar = MkParser dvChar
 
 char : Derivs d => Char -> Parser d Char
-char ch = satisfy anyChar (\c => c == ch) --  <?> show ch
+char ch = satisfy anyChar (\c => c == ch) <?> show ch
 
 -- -- oneOf :: Derivs d => [Char] -> Parser d Char
 -- -- oneOf chs = satisfy anyChar (\c -> c `elem` chs)
@@ -311,7 +233,7 @@ char ch = satisfy anyChar (\c => c == ch) --  <?> show ch
 -- --        <?> ("any character not in " ++ show chs)
 
 string : Derivs d => String -> Parser d String
-string str = p (unpack str) -- <?> show str
+string str = p (unpack str) <?> show str
   where p : (Derivs d) => List Char -> Parser d String
         p [] = pure str
         p (ch :: chs) = do
@@ -356,8 +278,8 @@ space = satisfy anyChar isSpace <?> "whitespace character"
 spaces : Derivs d => Parser d (List Char)
 spaces = many space
 
--- eof :: Derivs d => Parser d ()
--- eof = notFollowedBy anyChar <?> "end of input"
+eof : Derivs d => Parser d ()
+eof = notFollowedBy anyChar <?> "end of input"
 
 
 -- -- State manipulation
