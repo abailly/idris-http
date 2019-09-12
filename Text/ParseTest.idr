@@ -18,11 +18,9 @@ Derivs Arithmetics where
   dvPos d = arPos d
 
 pDecimal : Parser Arithmetics Int
-pDecimal = do
-  c <- digit
-  pure (cast c - 48)
+pDecimal = foldl (\ x, c => x * 10 + (cast c - 48)) 0 <$> many1 digit <?> "decimal integer"
 
-parseAr : Pos String -> String -> Arithmetics
+parseAr : Pos String -> List Char -> Arithmetics
 parseAr pos s = d
   where
     mutual
@@ -34,12 +32,12 @@ parseAr pos s = d
              in p d
 
       chr : Result Char Arithmetics
-      chr  = case unpack s of
-               (c :: s') => Parsed c (parseAr (nextPos pos c) $ pack s') (nullError d)
+      chr  = case s of
+               (c :: s') => Parsed c (parseAr (nextPos pos c) s') (nullError d)
                [] => NoParse (eofError d)
 
 eval : String -> Either String Int
-eval s = case arDecimal (parseAr (MkPos "<input>" 1 1) s) of
+eval s = case arDecimal (parseAr (MkPos "<input>" 1 1) $ unpack s) of
               Parsed v d' e' => Right v
               NoParse err => Left $ show err
 
@@ -56,10 +54,22 @@ test_canParseASingleDigitString = do
   let res = eval "1"
   res `shouldBe` Right 1
 
+test_canParseAMultipleDigitString : IO (Either String ())
+test_canParseAMultipleDigitString = do
+  let res = eval "13"
+  res `shouldBe` Right 13
+
+test_returnsAnError : IO (Either String ())
+test_returnsAnError = do
+  eval "z" `shouldBe` Left "<input>:1:1: expecting decimal integer\n"
+
 export
 test : IO ()
 test = do
-  Right () <- test_canParseASingleDigitString
-    | Left err => do putStrLn err
-                     exit 1
-  pure ()
+  (lefts, _) <- partitionEithers <$> sequence [ test_canParseASingleDigitString
+                                              , test_canParseAMultipleDigitString
+                                              , test_returnsAnError
+                                              ]
+  when (lefts /= []) $ do
+    traverse putStrLn lefts
+    exit 1

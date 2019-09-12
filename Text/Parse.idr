@@ -34,6 +34,9 @@ interface Derivs d where
 nullError : Derivs d => d -> ParseError
 nullError dvs = MkParseError (dvPos dvs) []
 
+expError : Derivs d => d  -> String -> ParseError
+expError dvs desc = MkParseError (dvPos dvs) [Expected desc]
+
 Show ParseError where
   show (MkParseError pos []) =
     show pos ++ ": unknown error"
@@ -84,7 +87,7 @@ msgError pos msg = MkParseError pos [Msg msg]
 -- -- Basic Combinators
 
 --infixl 2 <|>
---infixl 1 <?>
+infixl 1 <?>
 --infixl 1 <?!>
 
 implementation (Derivs d) => Functor (Parser d) where
@@ -136,10 +139,6 @@ implementation Derivs d => Alternative (Parser d) where
             second err1 (NoParse err) =
                    NoParse (joinErrors err1 err)
 
-            -- first : Result a d -> Result b d
-            -- first dvs (result @ (Parsed val rem err)) = result
-            -- first dvs (NoParse err) = second err (p2 dvs)
-
             first : d -> Result a d -> Result a d
             first dvs result@(Parsed x y z) = result
             first dvs (NoParse err) = second err (p2 dvs)
@@ -155,7 +154,7 @@ satisfy (MkParser p) test = MkParser parse
       check dvs (result @ (Parsed val rem err)) =
         if test val
          then result
-        else NoParse (nullError dvs)
+        else NoParse (expError dvs "a character satisfying predicate")
       check dvs none = none
 
       parse : d -> Result v d
@@ -172,12 +171,12 @@ satisfy (MkParser p) test = MkParser parse
 -- -- optional :: Derivs d => Parser d v -> Parser d (Maybe v)
 -- -- optional p = (do v <- p; return (Just v)) <|> return Nothing
 
--- -- many :: Derivs d => Parser d v -> Parser d [v]
--- -- many p = (do { v <- p; vs <- many p; return (v : vs) } )
--- --    <|> return []
+many : Derivs d => Parser d v -> Parser d (List v)
+many p = (do { v <- p; vs <- many p; pure (v :: vs) } )
+   <|> pure []
 
--- -- many1 :: Derivs d => Parser d v -> Parser d [v]
--- -- many1 p = do { v <- p; vs <- many p; return (v : vs) }
+many1 : Derivs d => Parser d v -> Parser d (List v)
+many1 p = do { v <- p; vs <- many p; pure (v :: vs) }
 
 -- -- sepBy1 :: Derivs d => Parser d v -> Parser d vsep -> Parser d [v]
 -- -- sepBy1 p psep = do v <- p
@@ -235,21 +234,23 @@ satisfy (MkParser p) test = MkParser parse
 -- -- failAt :: Derivs d => Pos -> String -> Parser d v
 -- -- failAt pos msg = Parser (\dvs -> NoParse (msgError pos msg))
 
--- -- -- Annotate a parser with a description of the construct to be parsed.
--- -- -- The resulting parser yields an "expected" error message
--- -- -- if the construct cannot be parsed
--- -- -- and if no error information is already available
--- -- -- indicating a position farther right in the source code
--- -- -- (which would normally be more localized/detailed information).
--- -- (<?>) :: Derivs d => Parser d v -> String -> Parser d v
--- -- (Parser p) <?> desc = Parser (\dvs -> munge dvs (p dvs))
--- --       where munge dvs (Parsed v rem err) =
--- --         Parsed v rem (fix dvs err)
--- --             munge dvs (NoParse err) =
--- --         NoParse (fix dvs err)
--- --             fix dvs (err @ (ParseError p ms)) =
--- --         if p > dvPos dvs then err
--- --         else expError (dvPos dvs) desc
+||| Annotate a parser with a description of the construct to be parsed.
+||| The resulting parser yields an "expected" error message
+||| if the construct cannot be parsed
+||| and if no error information is already available
+||| indicating a position farther right in the source code
+||| (which would normally be more localized/detailed information).
+(<?>) : Derivs d => Parser d v -> String -> Parser d v
+(MkParser p) <?> desc = MkParser (\ dvs => munge dvs (p dvs))
+  where
+    fix : d -> ParseError -> ParseError
+    fix dvs err@(MkParseError pos ms) =
+      if pos > dvPos dvs
+      then err
+      else expError dvs desc
+
+    munge dvs (Parsed v rem err) = Parsed v rem (fix dvs err)
+    munge dvs (NoParse err) =  NoParse (fix dvs err)
 
 -- -- -- Stronger version of the <?> error annotation operator above,
 -- -- -- which unconditionally overrides any existing error information.
@@ -262,27 +263,15 @@ satisfy (MkParser p) test = MkParser parse
 -- --             fix dvs (err @ (ParseError p ms)) =
 -- --         expError (dvPos dvs) desc
 
--- -- -- Potentially join two sets of ParseErrors,
--- -- -- but only if the position didn't change from the first to the second.
--- -- -- If it did, just return the "new" (second) set of errors.
--- -- joinErrors (e @ (ParseError p m)) (e' @ (ParseError p' m')) =
--- --   if p' > p || null m then e'
--- --   else if p > p' || null m' then e
--- --   else ParseError p (m `union` m')
-
--- -- nullError dvs = ParseError (dvPos dvs) []
-
--- -- expError pos desc = ParseError pos [Expected desc]
-
 
 eofError : (Derivs d) => d -> ParseError
 eofError dvs = MkParseError (dvPos dvs) [ Msg "end of input" ]
 
--- -- expected :: Derivs d => String -> Parser d v
--- -- expected desc = Parser (\dvs -> NoParse (expError (dvPos dvs) desc))
+expected : Derivs d => String -> Parser d v
+expected desc = MkParser (\dvs => NoParse (expError dvs desc))
 
--- -- unexpected :: Derivs d => String -> Parser d v
--- -- unexpected str = fail ("unexpected " ++ str)
+unexpected : Derivs d => String -> Parser d v
+unexpected str = fail ("unexpected " ++ str)
 
 
 -- -- -- Comparison operators for ParseError just compare relative positions.
