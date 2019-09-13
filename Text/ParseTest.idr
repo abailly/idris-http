@@ -24,11 +24,11 @@ pDecimal = foldl (\ x, c => x * 10 + (cast c - 48)) 0 <$> many1 digit <?> "decim
 
 multSuffix : Parser Arithmetics (Int -> Int)
 multSuffix = (do spaces *> char '*' <* spaces
-                 (*) <$> pDecimal) <|> pure (*1)
+                 (*) <$> (MkParser arDecimal)) <|> pure (*1)
 
 pMult : Parser Arithmetics Int
 pMult = do
-  x <- pDecimal
+  x <- MkParser arDecimal
   f <- multSuffix
   pure $ f x
 
@@ -126,10 +126,10 @@ pSSym = do
 
 pSExpList : Parser SExpParse SExp
 pSExpList =
-  SList <$> between (char '(' <* spaces) (char ')') (sepBy (pSExpList <|> pSSym <|> pSInt) spaces)
+  SList <$> between (char '(' <* spaces) (char ')') (sepBy (MkParser sList <|> MkParser sSym <|> MkParser sInt) spaces)
 
 pProg : Parser SExpParse (List SExp)
-pProg = many pSExpList <* eof
+pProg = many (MkParser sList) <* eof
 
 parseSExp : Pos String -> List Char -> SExpParse
 parseSExp pos s = d

@@ -15,12 +15,12 @@ data Result : (v : Type) -> (d : Type) -> Type where
      NoParse : ParseError -> Result v d
 
 data Parser : (d : Type) -> (v : Type) -> Type where
-  MkParser : (d -> Result v d) -> Parser d v
+  MkParser : (d -> Lazy (Result v d)) -> Parser d v
 
 
 interface Derivs d where
   dvPos  : d -> Pos String
-  dvChar : d -> Result Char d
+  dvChar : d -> Lazy (Result Char d)
 
 
 nullError : Derivs d => d -> ParseError
@@ -69,13 +69,13 @@ implementation Derivs d => Monad (Parser d) where
       second err1 (NoParse err) =
              NoParse (joinErrors err1 err)
 
-      first : Result a d -> Result b d
+      first : Result a d -> Lazy (Result b d)
       first (Parsed val rem err) =
         let MkParser p2 = f val
         in second err (p2 rem)
       first (NoParse err) = NoParse err
 
-      parse : d -> Result b d
+      parse : d -> Lazy (Result b d)
       parse dvs = first (p1 dvs)
 
 
@@ -89,31 +89,31 @@ implementation Derivs d => Alternative (Parser d) where
   empty = MkParser $ \ dv => NoParse (MkParseError (dvPos dv) [ Msg "Nothing to parse" ])
 
   (MkParser p1) <|> (MkParser p2) = MkParser parse
-      where second : ParseError -> Result a d -> Result a d
+      where second : ParseError -> Result a d -> Lazy (Result a d)
             second err1 (Parsed val rem err) =
                    Parsed val rem (joinErrors err1 err)
             second err1 (NoParse err) =
                    NoParse (joinErrors err1 err)
 
-            first : d -> Result a d -> Result a d
+            first : d -> Result a d -> Lazy (Result a d)
             first dvs result@(Parsed x y z) = result
             first dvs (NoParse err) = second err (p2 dvs)
 
-            parse : d -> Result a d
+            parse : d -> Lazy (Result a d)
             parse dvs = first dvs (p1 dvs)
 
 
 satisfy : Derivs d => Parser d v -> (v -> Bool) -> Parser d v
 satisfy (MkParser p) test = MkParser parse
     where
-      check : d -> Result v d -> Result v d
+      check : d -> Result v d -> Lazy (Result v d)
       check dvs (result @ (Parsed val rem err)) =
         if test val
          then result
         else NoParse (expError dvs "a character satisfying predicate")
       check dvs none = none
 
-      parse : d -> Result v d
+      parse : d -> Lazy (Result v d)
       parse dvs = check dvs (p dvs)
 
 notFollowedBy : (Derivs d, Show v) => Parser d v -> Parser d ()
