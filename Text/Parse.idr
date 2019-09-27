@@ -2,8 +2,8 @@
 ||| Directly translated from http://bford.info/pub/lang/packrat-icfp02/
 module Text.Parse
 
-import Text.Pos
-import Text.ParseError
+import public Text.Pos
+import public Text.ParseError
 import Data.List
 
 %access public export
